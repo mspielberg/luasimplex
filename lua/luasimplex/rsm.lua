@@ -1,8 +1,12 @@
-local math = require("math")
+local abs = math.abs
+local huge = math.huge
 local error, type = error, type
 
-local luasimplex = require("luasimplex")
-local iarray, darray = luasimplex.iarray, luasimplex.darray
+local function array(n)
+  local a = {}
+  for i = 1, n do a[i] = 0 end
+  return a
+end
 
 
 -- Constants -------------------------------------------------------------------
@@ -23,7 +27,7 @@ local function compute_pi(M, I)
   for i = 1, nrows do pi[i] = 0 end
   for i = 1, nrows do
     local c = I.basic_costs[i]
-    if math.abs(c) > TOL then
+    if abs(c) > TOL then
       for j = 1, nrows do
         pi[j] = pi[j] + c * Bi[(i-1)*nrows + j]
       end
@@ -46,7 +50,7 @@ local function compute_reduced_cost(M, I)
   -- the downside is that we write to reduced_costs frequently
   for i = 1, M.nrows do
     local p = I.pi[i]
-    if math.abs(p) > TOL then
+    if abs(p) > TOL then
       for j = row_starts[i], row_starts[i+1]-1 do
         local k = indexes[j]
         if status[k] ~= 0 then
@@ -62,11 +66,11 @@ local function find_entering_variable(M, I)
   local TOL = -I.TOLERANCE
   -- Find the variable with the "lowest" reduced cost, keeping in mind that it might be at its upper bound
 
-  local cycles, minrc, entering_index = math.huge, 0, -1
+  local cycles, minrc, entering_index = huge, 0, -1
   for i = 1, M.nvars do
     local s, rc = I.status[i]
     if s == NONBASIC_FREE then
-      rc = -math.abs(I.reduced_costs[i])
+      rc = -abs(I.reduced_costs[i])
     else
       rc = s * I.reduced_costs[i]
     end
@@ -89,7 +93,7 @@ local function compute_gradient(M, I, entering_index, gradient)
   if gradient then
     for i = 1, nrows do gradient[i] = 0 end
   else
-    gradient = darray(nrows, 0)
+    gradient = array(nrows)
   end
 
   for i = 1, nrows do
@@ -125,13 +129,13 @@ local function find_leaving_variable(M, I, entering_index, gradient)
 
   for i = 1, M.nrows do
     local g = gradient[i] * -s
-    if math.abs(g) > TOL then
+    if abs(g) > TOL then
       local j, bound = I.basics[i]
 
       if g > 0 then
-        if I.xu[j] < math.huge then bound = I.xu[j] end
+        if I.xu[j] < huge then bound = I.xu[j] end
       else
-        if I.xl[j] > -math.huge then bound = I.xl[j] end
+        if I.xl[j] > -huge then bound = I.xl[j] end
       end
 
       if bound then
@@ -179,14 +183,14 @@ end
 
 -- Initialisation --------------------------------------------------------------
 
-local function initialise_real_variables(M, I, offset)
+local function initialise_real_variables(M, I)
   for ii = 1, M.nvars do
-    local i = ii + offset
+    local i = ii
     I.xu[i], I.xl[i] = M.xu[i], M.xl[i]
-    if M.xl[i] == -math.huge and M.xu[i] == math.huge then
+    if M.xl[i] == -huge and M.xu[i] == huge then
       I.x[i] = 0
       I.status[i] = NONBASIC_FREE
-    elseif math.abs(M.xl[i]) < math.abs(M.xu[i]) then
+    elseif abs(M.xl[i]) < abs(M.xu[i]) then
       I.x[i] = M.xl[i]
       I.status[i] = NONBASIC_LOWER
     else
@@ -197,12 +201,12 @@ local function initialise_real_variables(M, I, offset)
 end
 
 
-local function initialise_artificial_variables(M, I, offset)
+local function initialise_artificial_variables(M, I)
   local nvars, nrows = M.nvars, M.nrows
   local indexes, elements, row_starts = M.indexes, M.elements, M.row_starts
 
   for ii = 1, nrows do
-    local i = ii + offset
+    local i = ii
     local z = M.b[i]
     for j = row_starts[i], row_starts[i+1]-1 do
       z = z - elements[j] * I.x[indexes[j]]
@@ -212,9 +216,9 @@ local function initialise_artificial_variables(M, I, offset)
     I.status[k] = BASIC
     I.basics[i] = k
     if z < 0 then
-      I.basic_costs[i], I.xl[k], I.xu[k] = -1, -math.huge, 0
+      I.basic_costs[i], I.xl[k], I.xu[k] = -1, -huge, 0
     else
-      I.basic_costs[i], I.xl[k], I.xu[k] = 1, 0, math.huge
+      I.basic_costs[i], I.xl[k], I.xu[k] = 1, 0, huge
     end
     if type(M) == "table" and M.variable_names and M.constraint_names then
       M.variable_names[k] = M.constraint_names[i].."_ARTIFICIAL"
@@ -223,18 +227,16 @@ local function initialise_artificial_variables(M, I, offset)
 end
 
 
-local function initialise(M, I, S, c_arrays)
-  offset = c_arrays and -1 or 0
-
+local function initialise(M, I, S)
   local nrows = M.nrows
 
   if not S.TOLERANCE then S.TOLERANCE = TOLERANCE end
   I.TOLERANCE = S.TOLERANCE
 
-  initialise_real_variables(M, I, offset)
-  initialise_artificial_variables(M, I, offset)
+  initialise_real_variables(M, I)
+  initialise_artificial_variables(M, I)
 
-  for i = 1, nrows do I.Binverse[(i-1)*nrows + i + offset] = 1 end
+  for i = 1, nrows do I.Binverse[(i-1)*nrows + i] = 1 end
 
   return I
 end
@@ -254,7 +256,7 @@ local function solve(M, I, S)
     I.iterations = I.iterations + 1
     if monitor then monitor(M, I, S, "iteration") end
     if I.iterations > 10000 then
-      luasimplex.error("Iteration limit", M, I, S)
+      error("Iteration limit", M, I, S)
     end
 
     compute_pi(M, I)
@@ -265,8 +267,8 @@ local function solve(M, I, S)
     if I.entering_index == -1 then
       if I.phase == 1 then
         for i = 1, nrows do
-          if I.basics[i] > nvars and math.abs(I.x[I.basics[i] ]) > TOLERANCE  then
-            luasimplex.error("Infeasible", M, I, S)
+          if I.basics[i] > nvars and abs(I.x[I.basics[i] ]) > TOLERANCE  then
+            error("Infeasible", M, I, S)
           end
         end
         I.costs = M.c
@@ -288,11 +290,11 @@ local function solve(M, I, S)
       I.leaving_index, I.max_change, to_lower = find_leaving_variable(M, I, I.entering_index, I.gradient)
       if monitor then monitor(M, I, S, "leaving_variable") end
 
-      if I.phase == 2 and I.max_change >= math.huge / 2 then
-        luasimplex.error("Unbounded", M, I, S)
+      if I.phase == 2 and I.max_change >= huge / 2 then
+        error("Unbounded", M, I, S)
       end
 
-      if math.abs(I.max_change) > TOLERANCE then
+      if abs(I.max_change) > TOLERANCE then
         for i = 1, nvars do
           I.basic_cycles[i] = 0
         end
